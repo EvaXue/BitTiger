@@ -1,0 +1,116 @@
+---
+title: "LendingClub"
+author: "Eva"
+date: "6/23/2018"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+setwd("~/evagit/Bittiger/LendingClub")
+rm(list=ls())
+library(corrplot)
+library(party)
+```
+
+```{r data exploration}
+loan_df = read.csv("loan.csv", stringsAsFactors = FALSE)
+dim(loan_df)
+str(loan_df)
+head(loan_df)
+summary(loan_df)
+##which only keeps the true.
+length(which(is.na(loan_df$annual_inc)))
+##4 application is NA
+
+##check NA amount in each column 
+num.NA = sort(sapply(loan_df, function(x){ sum(is.na(x))}), decreasing = TRUE)
+remain.col = names(num.NA)[which(num.NA <=0.8*dim(loan_df)[1])]
+loan_df = loan_df[, remain.col]
+loan_df$annual_inc[which(is.na(loan_df$annual_inc))] = median(loan_df$annual_inc, na.rm = TRUE)
+sort(table(loan_df$grade))
+
+correlations <- cor(loan_df[, c('int_rate', 'total_acc', 'acc_now_delinq', 'annual_inc',
+                             'dti', 'loan_amnt')], 
+                    use = "pairwise.complete.obs")
+
+corrplot(correlations, method = "square", cl.cex=1, type = 'lower')
+
+```
+```{r split data into numeric & categorical}
+
+
+## get the potential response columns
+## they might have strong correlation. It's not good to use one to predict another
+predictors.df = loan_df[,c("grade", "sub_grade", "int_rate", "loan_status")]
+feature.df = loan_df[, -which(colnames(loan_df) %in% c("grade", "sub_grade", "int_rate", "loan_status"))]
+
+##get the type for each feature
+feature.type = sapply(feature.df, class)
+
+##identify by position which columns have numeric and which have character
+feature.numeric = c()
+feature.char = c()
+for (i in 1: length(feature.type)){
+  ##loacate numeric variables
+  if(feature.type[i]=="numeric"){
+    feature.numeric=c(feature.numeric, i)
+  }
+  if(feature.type[i]=="character"){
+    feature.char=c(feature.char,i)
+  }
+  
+}
+str(feature.numeric)
+str(feature.char)
+
+feature.numeric.df=feature.df[,c(feature.numeric)]
+feature.char.df=feature.df[,c(feature.char)]
+#feature.char.df=sapply(feature.df[,c(feature.char)], as.factor)
+
+```
+
+
+```{r combined_df}
+#create dataframe with features and target
+numeric.select.df = cbind(feature.numeric.df, predictors.df$int_rate)
+char.select.df = cbind(feature.char.df,predictors.df$int_rate)
+
+
+```
+
+```{r correlations}
+numeric.cor = cor(numeric.select.df, use = "pairwise.complete.obs")
+corrplot(numeric.cor, method = "square", cl.cex=1, type = 'lower')
+## check the p-value for each pair of correlation 
+numeric.p=c()
+## get the correlation value for each paire of correlation
+numeric.abs.c=c()
+feature_name=c()
+for (i in colnames(feature.numeric.df)){
+  feature = feature.numeric.df[,i]
+  cor=cor.test(feature, predictors.df$int_rate)
+  p=cor$p.value
+  c=cor$estimate
+  numeric.p=c(numeric.p,p)
+  numeric.abs.c=c(numeric.abs.c,abs(c))
+  feature_name=c(feature_name, i)
+  
+}
+numeric_output=as.data.frame(cbind(numeric.abs.c,feature_name))
+numeric_output=numeric_output[-which(is.na(numeric_output$numeric.abs.c)),]
+select.numeric.features=tail(numeric_output[order(numeric_output$numeric.abs.c),],5)
+
+
+##total_pymnt total_pymnt_inv  inq_last_6mths      revol_util   total_rec_int
+##are top 5 numeric features I will select. Since they have strong correlation with predict variable interest rate and the p-values are tested to be statistically significant
+summary(feature.char.df)
+str(feature.char.df)
+## for categorical variables, I will need to do the feature engineering on all the date related features and convert them into numerical variable (like calulating them into days till current)  eg: earliest_cr_line, last_pymnt_d, last_credit_pull_d 
+## based on bussienss sense, I will select "emp_length", "purpose", "home_ownership", "verification_status", "earliest_cr_line"
+
+```
+
+
+

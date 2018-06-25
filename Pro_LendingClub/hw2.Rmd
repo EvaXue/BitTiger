@@ -1,0 +1,56 @@
+---
+title: "HW2"
+author: "Eva"
+date: "6/23/2018"
+output: pdf_document
+---
+```{r launch}
+setwd("~/evagit/Bittiger/LendingClub")
+loan_df= read.csv("loan.csv", stringsAsFactors = FALSE)
+```
+
+```{r test}
+table(loan_df$term)
+t.test(int_rate ~term, data=loan_df)
+
+#M1-M2 CI
+#95 percent confidence interval:
+# -4.111525 -4.074310
+## M1 and M2 are significant different
+str(loan_df$term)
+short_term = subset(loan_df, term ==" 36 months")
+long_term =  subset(loan_df, term ==" 60 months")
+
+stderr = sqrt(var(short_term$int_rate)/ dim(short_term)[1] + 
+                var(long_term$int_rate)/dim(long_term)[1])
+
+t.score = (mean(short_term$int_rate) - mean(long_term$int_rate)) /stderr
+## answer should be same
+
+with(loan_df, table(term, grade))
+#2 * 7 table
+with(loan_df, chisq.test(grade, term))
+
+#data:  grade and term
+#X-squared = 176070, df = 6, p-value < 2.2e-16
+
+```
+```{r}
+num.value = sapply(loan_df, function(x){return(length(unique(x)))})
+which(num.value == 1)
+which(num.value == dim(loan_df)[1])
+
+#fix input error
+#loan_df$dti = ifelse(!is.na(dti_joint), loan_df$dti_joint, loan_df$dti)
+length(unique(loan_df$addr_state))
+table(loan_df$addr_state)
+##too many levels
+## group the states into region by economic level / geolocation / average interest rate
+
+int_state = by(loan_df, loan_df$addr_state, function(x){
+  return(mean(x$int_rate))
+})
+#loan_df$state_mean_int = 
+
+```
+
