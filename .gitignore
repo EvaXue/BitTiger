@@ -1,3 +1,14 @@
+#system file
+*.DS
+*.DS_Store
+
+#data file
+*.csv
+*.xlsx
+*.Rproj
+
+
+
 # Build and Release Folders
 bin-debug/
 bin-release/
