@@ -5,9 +5,197 @@ date: "6/23/2018"
 output: pdf_document
 ---
 ```{r launch}
-setwd("~/evagit/Bittiger/LendingClub")
+## reference 
+##https://www.kaggle.com/farazrahman/lending-club-check-before-you-cheque/notebook
+## https://www.kaggle.com/erykwalczak/initial-loan-book-analysis
+## https://www.kaggle.com/farazrahman/lending-club-check-before-you-cheque
+##https://www.kaggle.com/dhanyajothimani/lending-loan-dataset-visualization
+
+library(dplyr)
+library(parsedate)
+##question
+##Think about if/how you would process old features and what new features to be generated.
+##Build the best linear regression model to explain interest rate.
+rm(list=ls())
+setwd("~/evagit/BitTiger/Pro_LendingClub")
 loan_df= read.csv("loan.csv", stringsAsFactors = FALSE)
+glimpse(loan_df)
+sum(duplicated(loan_df))
+
 ```
+
+
+```{r cleaning}
+## check if id and member_id is unique => 887379 
+length(unique(loan_df$id))
+length(unique(loan_df$member_id))
+
+##select features with less than 20% missing value
+num.NA = sort(sapply(loan_df, function(x){sum(is.na(x))}), decreasing=TRUE)
+remain.col = names(num.NA)[which(num.NA/nrow(loan_df)<=0.8)]
+loan_df=loan_df[,remain.col]
+
+## check the columns with less than 4 unique values
+
+for(i in 1: length(loan_df)){
+  if (dim(unique(loan_df[i]))[1]<4){
+    print (names(loan_df[i]))
+    print (table(loan_df[i]))
+  }
+  
+}
+##following 3 features need to be concerned.
+##exclude "pymnt_plan" and "policy_code" from the dataset
+##we may keep the "application_type" for further discussion
+
+# "pymnt_plan"
+# 
+#      n      y 
+# 887369     10 
+
+# [1] "policy_code"
+# 
+#      1 
+# 887379 
+
+# "application_type"
+# 
+# INDIVIDUAL      JOINT 
+#     886868        511 
+
+
+##check all categorical variables
+loan_df.type=sapply(loan_df, class)
+loan_df.categorical=loan_df[,names(loan_df.type[which(loan_df.type=="character")])]
+str(loan_df.categorical)
+##check unique values for each categorical variable
+sapply(loan_df.categorical, function(x){ length(unique(x))})
+##delete the categorical values with too many unique values
+
+
+## after checking the features, deleting : 
+#url,
+#desc => it's similar to purpose
+# loan_df=loan_df[,-which(colnames(loan_df)%in%c("pymnt_plan","policy_code",'id', 'member_id', 'url','desc', 'title','emp_title','zip_code'))]
+
+loan_df <- within(loan_df, rm("pymnt_plan","policy_code",'id', 'member_id', 'url','desc', 'title','emp_title','zip_code'))
+
+##compute meaningful time features
+##convert date string to date, transform issue date by year
+
+loan_df$issue_year = sapply(loan_df$issue_d, function(x){substr(x, nchar(x)-3,nchar(x) )})
+plot(table(loan_df$issue_year), main="Loan Issued Over the Year", ylab = "Amount", xlab = "Year")
+
+##group the states by region
+unique(loan_df$addr_state)
+west = c('CA', 'OR', 'UT','WA', 'CO', 'NV', 'AK', 'MT', 'HI', 'WY', 'ID')
+south_west = c('AZ', 'TX', 'NM', 'OK')
+south_east = c('GA', 'NC', 'VA', 'FL', 'KY', 'SC', 'LA', 'AL', 'WV', 'DC', 'AR', 'DE', 'MS', 'TN' )
+mid_west = c('IL', 'MO', 'MN', 'OH', 'WI', 'KS', 'MI', 'SD', 'IA', 'NE', 'IN', 'ND')
+north_east = c('CT', 'NY', 'PA', 'NJ', 'RI','MA', 'MD', 'VT', 'NH', 'ME')
+
+state_to_Reagion = function(s){
+  if (s %in% west){
+    return ("WEST")
+  }
+  if (s %in% south_west){
+    return ("SOUTH_WEST")
+    }
+  if (s %in% south_east){
+    return ("SOUTH_EAST")
+  }
+  if (s %in% mid_west){
+    return ("MID_WEST")
+  }
+  if (s %in% north_east){
+    return ("NORTH_EAST")
+  }
+  else{
+    return ("Missing_Region")
+  }
+}
+
+loan_df$Region = sapply(loan_df$addr_state, state_to_Reagion )
+
+plot(table(loan_df$Region, loan_df$issue_year), main="Loan Issued by Region over the Years") 
+##remove addr_state
+loan_df=within(loan_df, rm('addr_state'))
+
+## check the employment length
+table(loan_df$emp_length)
+## convert employment length into numeric value
+emp_length_c_to_n=function(x){
+  if(x=="< 1 year"){
+    return(0.5)
+  }
+  if(x=="1 year"){
+    return(1)
+  }
+  if(x=="2 years"){
+    return(2)
+  }
+  if(x=="3 years"){
+    return(3)
+  }
+  if(x=="4 years"){
+    return(4)
+  }
+  if(x=="5 years"){
+    return(5)
+  }
+  if(x=="6 years"){
+    return(6)
+  }
+  if(x=="7 years"){
+    return(7)
+  }
+  if(x=="8 years"){
+    return(8)
+  }
+  if(x=="9 years"){
+    return(9)
+  }
+  if(x=="10+ years"){
+    return(10)
+  }
+  else{
+    return(0)
+  }
+    
+}
+
+loan_df$Employment_Length = sapply(loan_df$emp_length, emp_length_c_to_n)
+summary(loan_df$Employment_Length)
+##delete some categorical variables
+loan_df=loan_df[,-which(colnames(loan_df)%in%c("emp_length"))]
+
+##delete the variables which will not be available at the time of deciding the intereste rate
+#remove the potential related responsive variable except "int_rate"
+loan_df=within(loan_df, rm("funded_amnt", "funded_amnt_inv",  "out_prncp", "out_prncp_inv", "total_pymnt", "total_pymnt_inv", "total_rec_int", "total_rec_late_fee", "total_rec_prncp", 'grade',"sub_grade","loan_status" ))
+
+##check the reminding categorical variables and convert them into factor
+loan_df.type=sapply(loan_df, class)
+loan_df.categorical=loan_df[,names(loan_df.type[which(loan_df.type=="character")])]
+str(loan_df.categorical)
+
+loan_df$term=as.factor(loan_df$term)
+loan_df$home_ownership=as.factor(loan_df$home_ownership)
+loan_df$verification_status=as.factor(loan_df$verification_status)
+loan_df$purpose=as.factor(loan_df$purpose)
+loan_df$initial_list_status=as.factor(loan_df$initial_list_status)
+loan_df$application_type=as.factor(loan_df$application_type)
+loan_df$verification_status_joint=as.factor(loan_df$verification_status_joint)
+loan_df$Region=as.factor(loan_df$Region)
+glimpse(loan_df)
+
+
+
+##impute the misssing value
+```
+
+
+
+
 
 ```{r test}
 table(loan_df$term)
@@ -35,6 +223,10 @@ with(loan_df, chisq.test(grade, term))
 #X-squared = 176070, df = 6, p-value < 2.2e-16
 
 ```
+
+
+
+
 ```{r}
 num.value = sapply(loan_df, function(x){return(length(unique(x)))})
 which(num.value == 1)
