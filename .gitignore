@@ -1,6 +1,7 @@
 #system file
 *.DS
 *.DS_Store
+*.Rhistory
 
 #data file
 *.csv
