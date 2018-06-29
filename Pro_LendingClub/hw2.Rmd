@@ -8,11 +8,12 @@ output: pdf_document
 ## reference 
 ##https://www.kaggle.com/farazrahman/lending-club-check-before-you-cheque/notebook
 ## https://www.kaggle.com/erykwalczak/initial-loan-book-analysis
-## https://www.kaggle.com/farazrahman/lending-club-check-before-you-cheque
 ##https://www.kaggle.com/dhanyajothimani/lending-loan-dataset-visualization
 
 library(dplyr)
 library(parsedate)
+library(lubridate)
+library(DescTools)
 ##question
 ##Think about if/how you would process old features and what new features to be generated.
 ##Build the best linear regression model to explain interest rate.
@@ -86,6 +87,8 @@ loan_df <- within(loan_df, rm("pymnt_plan","policy_code",'id', 'member_id', 'url
 loan_df$issue_year = sapply(loan_df$issue_d, function(x){substr(x, nchar(x)-3,nchar(x) )})
 plot(table(loan_df$issue_year), main="Loan Issued Over the Year", ylab = "Amount", xlab = "Year")
 
+##too many levels
+##we can group the states into region by economic level / geolocation / average interest rate
 ##group the states by region
 unique(loan_df$addr_state)
 west = c('CA', 'OR', 'UT','WA', 'CO', 'NV', 'AK', 'MT', 'HI', 'WY', 'ID')
@@ -171,7 +174,7 @@ loan_df=loan_df[,-which(colnames(loan_df)%in%c("emp_length"))]
 
 ##delete the variables which will not be available at the time of deciding the intereste rate
 #remove the potential related responsive variable except "int_rate"
-loan_df=within(loan_df, rm("funded_amnt", "funded_amnt_inv",  "out_prncp", "out_prncp_inv", "total_pymnt", "total_pymnt_inv", "total_rec_int", "total_rec_late_fee", "total_rec_prncp", 'grade',"sub_grade","loan_status" ))
+loan_df=within(loan_df, rm("funded_amnt", "funded_amnt_inv",  "out_prncp", "out_prncp_inv", "total_pymnt", "total_pymnt_inv", "total_rec_int", "total_rec_late_fee", "total_rec_prncp", 'grade',"sub_grade","loan_status","last_credit_pull_d","next_pymnt_d", "last_pymnt_amnt", "next_pymnt_d", "last_pymnt_d"))
 
 ##check the reminding categorical variables and convert them into factor
 loan_df.type=sapply(loan_df, class)
@@ -186,63 +189,46 @@ loan_df$initial_list_status=as.factor(loan_df$initial_list_status)
 loan_df$application_type=as.factor(loan_df$application_type)
 loan_df$verification_status_joint=as.factor(loan_df$verification_status_joint)
 loan_df$Region=as.factor(loan_df$Region)
+loan_df$issue_year=as.factor(loan_df$issue_year)
+loan_df$issue_d <- dmy(paste0("01-",loan_df$issue_d))
+loan_df$earliest_cr_line <- dmy(paste0("01-",loan_df$earliest_cr_line))
+loan_df$earliest_cr_line_year =as.factor(substring(loan_df$earliest_cr_line, 1,4))
 glimpse(loan_df)
+Desc(loan_df$purpose,  main = "Loan purposes", plotit = TRUE)
+Desc(loan_df$loan_amnt,  main = "Loan Amount", plotit = TRUE)
+Desc(loan_df$int_rate,  main = "Interest Rate", plotit = TRUE)
+##check the missing value in each column
+length(loan_df[,which(is.na(loan_df$int_rate))])
+##impute the misssing value with medium for all numeric variables
+for (i in colnames(loan_df) ){
+  if (class(loan_df[,i])=="numeric"){
+    loan_df[is.na(loan_df[,i]),i] = median(loan_df[,i], na.rm = TRUE)
+    print (i)
+    print(length(loan_df[,which(is.na(loan_df[,i]))]))
+  }
 
+}
+summary(loan_df)
 
+```
+```{r modeling}
+model.df = within(loan_df, rm("issue_d", "earliest_cr_line"))
+pred.model = lm(int_rate ~. , model.df)
+summary(pred.model)
+## earliest_cr_line_year/ home_ownership/ mths_since_last_delinq is not promising. ##delete this feature
+model.df=within(model.df, rm("earliest_cr_line_year", "home_ownership", "mths_since_last_delinq"))
+pred.model = lm(int_rate ~. , model.df)
+summary(pred.model)
+# in output
+# Multiple R-squared:  0.6176,	Adjusted R-squared:  0.6175 
+# if R-square <= 0.3 it's pretty poor
+# F-statistic: 2.703e+04 on 53 and 887325 DF,  p-value: < 2.2e-16
+# F test => if the variance interpreted by the model vs. not interpreted by the model is significant. 
+# more siginificant is better. 
 
-##impute the misssing value
 ```
 
 
 
 
-
-```{r test}
-table(loan_df$term)
-t.test(int_rate ~term, data=loan_df)
-
-#M1-M2 CI
-#95 percent confidence interval:
-# -4.111525 -4.074310
-## M1 and M2 are significant different
-str(loan_df$term)
-short_term = subset(loan_df, term ==" 36 months")
-long_term =  subset(loan_df, term ==" 60 months")
-
-stderr = sqrt(var(short_term$int_rate)/ dim(short_term)[1] + 
-                var(long_term$int_rate)/dim(long_term)[1])
-
-t.score = (mean(short_term$int_rate) - mean(long_term$int_rate)) /stderr
-## answer should be same
-
-with(loan_df, table(term, grade))
-#2 * 7 table
-with(loan_df, chisq.test(grade, term))
-
-#data:  grade and term
-#X-squared = 176070, df = 6, p-value < 2.2e-16
-
-```
-
-
-
-
-```{r}
-num.value = sapply(loan_df, function(x){return(length(unique(x)))})
-which(num.value == 1)
-which(num.value == dim(loan_df)[1])
-
-#fix input error
-#loan_df$dti = ifelse(!is.na(dti_joint), loan_df$dti_joint, loan_df$dti)
-length(unique(loan_df$addr_state))
-table(loan_df$addr_state)
-##too many levels
-## group the states into region by economic level / geolocation / average interest rate
-
-int_state = by(loan_df, loan_df$addr_state, function(x){
-  return(mean(x$int_rate))
-})
-#loan_df$state_mean_int = 
-
-```
 
