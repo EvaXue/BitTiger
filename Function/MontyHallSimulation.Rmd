@@ -1,0 +1,68 @@
+---
+author: "Eva"
+date: "7/10/2018"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup}
+rm(list = ls())
+
+```
+
+
+```{r MontyFunction}
+Monty = function(select, times ){
+  
+  ## doors
+  door = 1:3
+  ## keep track of # of win
+  win = 0
+  
+  for (i in 1:times){
+    prize = floor(runif(1,1,4))
+    init_select = floor(runif(1,1,4))
+    
+    ##reveal 1 door without prize
+    if (prize==init_select){
+      reveal = sample(door[-c(prize,init_select)],1)
+    }else{
+      reveal = door[-c(prize,init_select)]
+    }
+    
+    if (select =="stay"){
+      if(prize == init_select){
+       # print ("WIN")
+        win =win+1
+      }else{
+       # print("LOSE")
+      }
+    }
+    if (select=="switch"){
+      sw=door[-c(init_select, reveal)]
+      if (prize==sw){
+        #print("WIN")
+        win = win+1
+      }else{
+        #print("LOSE")
+      }
+    
+  }
+  
+  
+  
+}
+
+print (paste("Select-", select, ", your win percentage was ", (win/max(times))*100,'%',sep=''))
+
+}
+
+```
+
+```{r testing}
+
+Monty('stay', 1000 )
+Monty('switch', 1000 )
+```
+

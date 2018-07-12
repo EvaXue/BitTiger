@@ -1,0 +1,231 @@
+---
+title: "HW3"
+author: "Eva"
+date: "7/6/2018"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r launch}
+##reference for glmnet
+##https://web.stanford.edu/~hastie/glmnet/glmnet_alpha.html
+##https://www4.stat.ncsu.edu/~post/josh/LASSO_Ridge_Elastic_Net_-_Examples.html
+library(pROC)
+library(dplyr)
+library(parsedate)
+library(lubridate)
+library(DescTools)
+library(glmnet)
+set.seed(22)
+##question
+##Build the best logistic regression model to predict loan will be default (delay) or not. Add regularization to control for multicollinearity.
+rm(list=ls())
+setwd("~/evagit/BitTiger/Pro_LendingClub")
+loan_df= read.csv("loan.csv", stringsAsFactors = FALSE)
+#glimpse(loan_df)
+#sum(duplicated(loan_df))
+
+```
+
+```{r cleaning}
+##select features with less than 20% missing value
+num.NA = sort(sapply(loan_df, function(x){sum(is.na(x))}), decreasing = TRUE)
+remain.col = names(num.NA[which(num.NA/dim(loan_df)[1]<=0.2)])
+loan_df = loan_df[,remain.col]
+
+loan_df <- within(loan_df, rm("pymnt_plan","policy_code",'id', 'member_id', 'url','desc', 'title','emp_title','zip_code'))
+
+loan_df$issue_year = sapply(loan_df$issue_d, function(x){substr(x, nchar(x)-3,nchar(x) )})
+#plot(table(loan_df$issue_year), main="Loan Issued Over the Year", ylab = "Amount", xlab = "Year")
+
+##create relative values
+loan_df$last_pay_year = sapply(loan_df$last_pymnt_d, function(x){substr(x, nchar(x)-3,nchar(x) )})
+table(loan_df$last_pay_year)
+loan_df$payment_length_year=as.numeric(loan_df$last_pay_year)-as.numeric(loan_df$issue_year)
+loan_df$credit_year = as.numeric(loan_df$issue_year) - sapply(loan_df$earliest_cr_line, function(x){as.numeric(substr(x, nchar(x)-3,nchar(x)) )})
+table(loan_df$credit_year)
+##too many levels
+##we can group the states into region by economic level / geolocation / average interest rate
+##group the states by region
+#unique(loan_df$addr_state)
+west = c('CA', 'OR', 'UT','WA', 'CO', 'NV', 'AK', 'MT', 'HI', 'WY', 'ID')
+south_west = c('AZ', 'TX', 'NM', 'OK')
+south_east = c('GA', 'NC', 'VA', 'FL', 'KY', 'SC', 'LA', 'AL', 'WV', 'DC', 'AR', 'DE', 'MS', 'TN' )
+mid_west = c('IL', 'MO', 'MN', 'OH', 'WI', 'KS', 'MI', 'SD', 'IA', 'NE', 'IN', 'ND')
+north_east = c('CT', 'NY', 'PA', 'NJ', 'RI','MA', 'MD', 'VT', 'NH', 'ME')
+
+state_to_Reagion = function(s){
+  if (s %in% west){
+    return ("WEST")
+  }
+  if (s %in% south_west){
+    return ("SOUTH_WEST")
+    }
+  if (s %in% south_east){
+    return ("SOUTH_EAST")
+  }
+  if (s %in% mid_west){
+    return ("MID_WEST")
+  }
+  if (s %in% north_east){
+    return ("NORTH_EAST")
+  }
+  else{
+    return ("Missing_Region")
+  }
+}
+
+loan_df$Region = sapply(loan_df$addr_state, state_to_Reagion )
+##remove addr_state
+loan_df=within(loan_df, rm('addr_state'))
+
+## convert employment length into numeric value
+emp_length_c_to_n=function(x){
+  if(x=="< 1 year"){
+    return(0.5)
+  }
+  if(x=="1 year"){
+    return(1)
+  }
+  if(x=="2 years"){
+    return(2)
+  }
+  if(x=="3 years"){
+    return(3)
+  }
+  if(x=="4 years"){
+    return(4)
+  }
+  if(x=="5 years"){
+    return(5)
+  }
+  if(x=="6 years"){
+    return(6)
+  }
+  if(x=="7 years"){
+    return(7)
+  }
+  if(x=="8 years"){
+    return(8)
+  }
+  if(x=="9 years"){
+    return(9)
+  }
+  if(x=="10+ years"){
+    return(10)
+  }
+  else{
+    return(0)
+  }
+    
+}
+
+loan_df$Employment_Length = sapply(loan_df$emp_length, emp_length_c_to_n)
+##delete some categorical variables
+loan_df=loan_df[,-which(colnames(loan_df)%in%c("emp_length", "last_pymnt_d", "last_credit_pull_d", "issue_d", "next_pymnt_d", "earliest_cr_line"))]
+glimpse(loan_df)
+sort(table(loan_df$loan_status))
+loan_df$loan_status_default_binary = with(loan_df, ifelse(loan_status %in% c('Default','Late (16-30 days)',"Late (31-120 days)"), 1, 0))
+table(loan_df$loan_status_default_binary)
+loan_df$log_annual_inc = log(loan_df$annual_inc+1)
+loan_df = within(loan_df, rm("loan_status", "annual_inc" ))
+str(loan_df)
+summary(loan_df)
+
+##deal with missing value
+loan_df[which(is.na(loan_df[,"credit_year"])),]=0
+##replace all numeric missing value with medium
+data.type=sapply(loan_df, class)
+plot.new()
+for ( i in colnames(loan_df)){
+  if (class(loan_df[,i])=='numeric'){
+    print (names(loan_df[i]))
+    savename=names(loan_df[i])
+    loan_df[is.na(loan_df[,i]), i]=median(loan_df[,i], na.rm=TRUE)
+    
+    d= density(loan_df[,i])
+    par(mar=c(2,2,2,2), mfrow=c(2,1))
+    plot(d , main=paste("Density - ",savename))
+    hist(loan_df[,i], main=paste("Hist - ",savename))
+
+    rm(d)
+  }
+}
+
+##check feature "total_rev_hi_lim" = 9999999
+
+total_rev_hi_lim_extreme= subset(loan_df, total_rev_hi_lim==9999999)
+total_rev_hi_lim_extreme
+## these three people have high annual income. the exreme values make snese to them
+##delete the rows with NA in categorical variables
+loan_df=loan_df[complete.cases(loan_df),]
+
+
+
+##split the dataset into training and testing
+##take 70% for training
+train.ind = sample(1:dim(loan_df)[1], 0.7*dim(loan_df)[1])
+train = loan_df[train.ind,]
+test = loan_df[-train.ind,]
+table(train$loan_status_default_binary)
+table(test$loan_status_default_binary)
+
+```
+
+```{r build_model}
+#regulization for feature selection
+ind_v = within(train, rm("loan_status_default_binary"))
+dim(train[!complete.cases(train),])
+ind_v_matrix = model.matrix(~., ind_v)
+dim(ind_v_matrix)
+dep_v = train$loan_status_default_binary
+#elasticnet=> if we do not change the parameter, by default it's Lasso
+#glmnet function => standarize all features 
+#if we don't have glmnet, we use scale to transform the featrues M=0, sd=1
+fit1 = glmnet(x = ind_v_matrix, y = dep_v)
+plot(fit1, label = T)
+#get coefficient 
+vnat =coef(fit1)
+##move the intercept
+vnat=vnat[-c(1,2), ncol(vnat)]
+plot.new()
+plot(fit1, label =T, xvar="lambda", yaxt='n', ylab="")
+
+#deviance_model = 2*(loglikelihood_saturated_model - loglh_current_model)
+#deviance_null = 2*(loglikelihood_saturated_model - loglh_intercept_only_model)
+print(fit1)
+
+##use cv.glmnet to make k-fold cross validation / default is 10 fold
+##select the best lambda 
+cvfit = cv.glmnet(ind_v_matrix,dep_v, nfolds = 5)
+plot(cvfit)
+
+#pick log(lambda) = -8
+##check the coeficient when lambda is fixed 
+coef(fit1, s = 1/exp(7))
+##only keep the selected features
+
+
+train_selectedV=train[,c("tot_cur_bal","inq_last_6mths","funded_amnt","term", "int_rate", "home_ownership", "verification_status","initial_list_status","out_prncp","out_prncp_inv",   "total_rec_prncp","total_rec_int","total_rec_late_fee","recoveries","collection_recovery_fee","last_pymnt_amnt", "issue_year", "last_pay_year","Employment_Length","log_annual_inc")]
+train_selectedV$loan_status_default_binary=train$loan_status_default_binary
+
+logis.mod = glm(loan_status_default_binary ~., train_selectedV, family = 'binomial')
+summary(logis.mod)
+
+test_selectedV = test[,c("tot_cur_bal","inq_last_6mths","funded_amnt","term", "int_rate", "home_ownership", "verification_status","initial_list_status","out_prncp","out_prncp_inv",   "total_rec_prncp","total_rec_int","total_rec_late_fee","recoveries","collection_recovery_fee","last_pymnt_amnt", "issue_year", "last_pay_year","Employment_Length","log_annual_inc")]
+pred = predict(logis.mod, test_selectedV)
+
+
+
+```
+
+```{r evaluation}
+plot.roc(test$loan_status_default_binary, pred, print.auc=T)
+table(train_selectedV$last_pay_year, train_selectedV$issue_year)
+
+
+
+```
+
+
